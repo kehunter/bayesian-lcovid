@@ -260,3 +260,48 @@ def preprocess_data():
     
     return X_train, X_test, y_train, y_test
     
+
+
+def preprocess_after_second_bayes(df_full):
+    """
+    Preprocess all features.  Assumptions made:
+    - missing values for hysterectomy are marked 'no hysterectomy'
+    - other missing values are put in category '0'
+    - all categorical
+    """
+    feats = ['BALDIZZ_A',
+             'PAIHDFC3M_A',
+             'HRLOUDJOB_A',
+             'ASEV_A',
+             'SEX_A',
+             'HYSTEV2_A',
+             'PAIAMNT_A',
+             'SHTCVD19NM1_A',
+             'CFSEV_A']
+    encoder = OneHotEncoder(drop='first', sparse_output=False).set_output(transform="pandas")
+    y_name = 'LONGCOVD1_A'
+
+    # drop rows without target
+    df = df_full.dropna(subset=y_name)
+    df = df[df[y_name] != 9]
+
+    # Subset to columns
+    bayes_df = df[feats]
+    # Assume missing hyterectomy values are 'no'
+    bayes_df['HYSTEV2_A'].loc[bayes_df['HYSTEV2_A'].isna()] = 2
+    # Put missing pain into separate category, '0'
+    bayes_df[bayes_df.isna()] = 0
+    # Data type: int
+    bayes_df = bayes_df.astype(int)
+    
+    
+    cat_df = encoder.fit_transform(bayes_df)
+    
+    X = cat_df.copy()
+    y = df.loc[:, y_name]
+    y = (y == 1) * 1 # encode as 0 / 1 values
+    
+    # train test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=207)
+
+    return X_train, X_test, y_train, y_test
