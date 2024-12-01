@@ -1,16 +1,9 @@
 import pandas as pd
 import numpy as np
-# import matplotlib.pyplot as plt
-# from zipfile import ZipFile
-# import re
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-# from sklearn.feature_selection import SelectKBest, chi2
-# from sklearn.linear_model import LogisticRegression
-# from sklearn.impute import SimpleImputer
-# from sklearn.pipeline import Pipeline
-# from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, MinMaxScaler
+from sklearn.impute import SimpleImputer
 
 
 def preprocess_simple_model(df_full):
@@ -75,8 +68,7 @@ def preprocess_lit_features(df_full):
 def preprocess_bayes(df_full):
     """
     Preprocess all features.  Assumptions made:
-    - missing values for hysterectomy are marked 'no hysterectomy'
-    - other missing values are put in category '0'
+    - missing values are put in category '101'
     - all categorical
     """
     feats = ['BALDIZZ_A',
@@ -97,13 +89,10 @@ def preprocess_bayes(df_full):
 
     # Subset to columns
     bayes_df = df[feats]
-    # Assume missing hyterectomy values are 'no'
-    bayes_df['HYSTEV2_A'].loc[bayes_df['HYSTEV2_A'].isna()] = 2
     # Put missing pain into separate category, '101'
     bayes_df[bayes_df.isna()] = 101
     # Data type: int
     bayes_df = bayes_df.astype(int)
-    
     
     cat_df = encoder.fit_transform(bayes_df)
     
@@ -158,4 +147,52 @@ def preprocess_chi(df_full):
     
     # train test split
     X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=207)
+    return X_train, X_test, y_train, y_test
+
+
+def preprocess_all_columns(df_full):
+    """
+    Preprocess all features.  Several assumptions are made:
+    - null values of the target (long covid) are dropped
+    - features with greater than 8000 missing values are dropped
+    - values are imputed before the train test split, missing values are '101'
+    - continuous values are arbitrarily defined
+    """
+    encoder = OneHotEncoder(drop='first', sparse_output=False).set_output(transform="pandas")
+    scaler = MinMaxScaler().set_output(transform="pandas")
+    imputer = SimpleImputer(strategy="constant", fill_value=101).set_output(transform="pandas")
+
+    y_name = 'LONGCOVD1_A'
+    
+    # filter age
+    new_df = df_full[df_full["AGEP_A"] <= 84].reset_index(drop=True)
+    # filter ys
+    # subset for features and drop null values
+    df = new_df.dropna(subset=y_name)
+    df = df[df[y_name] != 9]
+    # drop null columns
+    null_cols = df.columns[df.isna().all()].values
+    low_counts = df.columns[df.isna().apply(sum) > 8000].values
+    df_droppedcols = df.drop(columns=np.hstack((null_cols, low_counts, ['HHX'], y_name)))
+    
+    # impute values 
+    imputed = imputer.fit_transform(df_droppedcols)
+
+    # define continuous and categorical features
+    continuous = df_droppedcols.columns[df_droppedcols.apply(np.unique).apply(len) > 15] 
+    categorical = df_droppedcols.columns[~df_droppedcols.columns.isin(continuous)]
+
+    # scale and encode
+    cont_df =  scaler.fit_transform(imputed.loc[:, continuous])
+    cat_df = encoder.fit_transform(imputed.loc[:,categorical])
+    
+    processed_df = pd.concat((cont_df, cat_df), axis=1)
+    
+    X = processed_df.copy()
+    y = df.loc[:, y_name]
+    y = (y == 1) * 1 # encode as 0 / 1 values
+    
+    # train test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=207)
+
     return X_train, X_test, y_train, y_test
